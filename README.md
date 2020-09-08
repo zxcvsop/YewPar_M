@@ -83,6 +83,7 @@ during the install. By default these binaries are placed in `${CMAKE_INSTALL_PRE
   - [Unbalanced Tree Search](https://sourceforge.net/p/uts-benchmark/wiki/Home/)
   - [Numerical Semigroups](https://arxiv.org/abs/1305.3831)
   - Fibonacci (for test purposes only)
+  - Maximal Clique
   
 - Decision:
   - k-clique (part of the maxcliuqe application)
