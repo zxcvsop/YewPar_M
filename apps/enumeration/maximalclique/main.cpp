@@ -115,19 +115,21 @@ struct MCNode {
   friend class boost::serialization::access;
 
   MCSol sol;
-  int size;
+  // int size;
   BitSet<NWORDS> remaining;
-  bool leaf;
+  BitSet<NWORDS> used;
+  int leaf;
 
   int getObj() const {
-    return size;
+    return leaf;
   }
 
   template <class Archive>
   void serialize(Archive & ar, const unsigned int version) {
     ar & sol;
-    ar & size;
+    // ar & size;
     ar & remaining;
+    ar & used;
     ar & leaf;
   }
 
@@ -140,37 +142,57 @@ struct GenNode : YewPar::NodeGenerator<MCNode, BitGraph<NWORDS> > {
   std::reference_wrapper<const BitGraph<NWORDS> > graph;
 
   MCSol childSol;
-  int childBnd;
-  BitSet<NWORDS> p,p1;
-  bool leaf;
+  // int childBnd;
+  BitSet<NWORDS> p,p1,p2,used_p;
+  std::vector<BitSet<NWORDS>> used_f;
+  int childLeaf;
   int v,v1;
-  std::vector<BitSet<NWORDS>> remaings;
-  int res;
+  int length;
   bool flag;
+
 
   GenNode(const BitGraph<NWORDS> & graph, const MCNode & n) : graph(std::cref(graph)) {
     colour_class_order(graph, n.remaining, p_order, colourClass);
     childSol = n.sol;
-    childBnd = n.size+1;
+    // childBnd = n.size+1;
     p = n.remaining;
     p1 = n.remaining;
     numChildren = p.popcount();
     v = numChildren - 1;
     v1 = numChildren -1;
-    leaf = false;
-    for(int i = v1; i >=0; i--){
-      auto cand = p1;
-      graph.intersect_with_row(p_order[i], cand);
+    childLeaf = n.leaf;
+    used_p = n.used;
 
-      // Side effectful function update
-      p1.unset(p_order[i]);
-      remaings.push_back(cand);
-    }
+    auto ca = p1;
+    graph.intersect_with_row(p_order[v],ca);
+    // p1.unset(p_order[v]);
+    p2 = ca;
+
+
+    // p1.set(p_order[v]);
+    // if(n.sol.members.size()==0){
+    //   for (size_t i = v; i >=0; i--)
+    //   {
+    //     auto can = p1;
+    //     graph.intersect_with_row(p_order[v],can);
+    //     used_f.push_back(can);
+    //   }
+      
+    // }
+
   }
 
   // Get the next value
   MCNode next() override {
     auto sol = childSol;
+    if(sol.members.size()==0 && p.popcount()==1){
+      childLeaf = 2;
+      sol.members.push_back(p_order[v]);
+      auto cands = p;
+     graph.get().intersect_with_row(p_order[v], cands);
+      p.unset(p_order[v]);
+      return {sol,cands,used_p,childLeaf};
+    }
     sol.members.push_back(p_order[v]);
     sol.colours = colourClass[v] - 1;
 
@@ -181,23 +203,57 @@ struct GenNode : YewPar::NodeGenerator<MCNode, BitGraph<NWORDS> > {
     // Side effectful function update
     p.unset(p_order[v]);
 
-    if(cands.empty()){
-      flag = false;
-      for(int i = v1; i >v;i--){
-        res = remaings[v1-i].popcount();
-        remaings[v1-i].set(p_order[v]);
-        if(res == remaings[v1-i].popcount()){
-          flag = true;
-          break;
-        }
-      }
-      if (flag == true) leaf = false;
-      else leaf = true;
+    // if(sol.members.size()==0){
+    //   for (size_t i = v1; i > v; i--
+    //   {
+    //     if(used_f[i].)
+    //   }
       
+    // }
+
+
+    if(sol.members.size()>1){
+
+      if(!used_p.empty()){
+        length = used_p.popcount();
+        used_p.set(p_order[v]);
+        if(length==used_p.popcount()){
+          if(cands.empty()){
+            childLeaf = 2;
+          }
+        }else{
+          if(cands.empty()){
+            childLeaf = 1;
+          }else{
+            used_p.set_all_zero();
+          }
+        }
     }
 
+      if(v!=v1&&childLeaf==0){
+        length = p2.popcount();
+        p2.set(p_order[v]);
+        if(length==p2.popcount()){
+          if(cands.empty()){
+            childLeaf = 2;
+          }else{
+            used_p = p2;
+            // childLeaf = 3;
+          }
+          
+        }else{
+          if(cands.empty()){
+            childLeaf = 1;
+          }
+        }
+      }
+
+      if(cands.empty()&&childLeaf==0){
+        childLeaf = 1;
+      }
+    }
     v--;
-    return {sol, childBnd, cands,leaf};
+    return {sol, cands, used_p, childLeaf};
   }
 
   // MCNode nth(unsigned n) {
@@ -220,10 +276,54 @@ struct GenNode : YewPar::NodeGenerator<MCNode, BitGraph<NWORDS> > {
 };
 
 struct CountSols : YewPar::Enumerator<MCNode, std::uint64_t>{
-  std::uint64_t count;
+  std::uint64_t count = 0;
+  std::vector<std::vector<int> > used;
+  std::vector<int> a;
+  size_t l;
   CountSols():count(0){};
   void accumulate(const MCNode & n) override{
-    if(n.leaf){ count++;}
+    std::vector<int> flag;
+    if(n.leaf==1){
+      // count++;
+      // for(auto i : n.sol.members){
+      //   std::cout<<i+1<<" ";
+      // }
+      // std::cout<<std::endl;
+      a = n.sol.members;
+      if(used.size()==0){
+        count++;
+        used.push_back(a);
+      }else{
+
+        for(auto it : used){
+          if(it.begin()!=a.begin()){
+            for(auto i: a){
+              if(!isContains(it,i)){
+                flag.push_back(1);
+                break;
+              }
+            }
+          }
+
+        }
+        if(flag.size() == used.size()){
+          count++;
+          used.push_back(a);
+        }
+      }
+
+    }
+  }
+
+  bool isContains(std::vector<int> a, int b){
+    int l = a.size();
+    for (size_t i = 0; i < l; ++i)
+    {
+      if(a[i]==b){
+        return true;
+      }
+    }
+    return false;
   }
   void combine(const std::uint64_t & other) override{
     count += other;
@@ -231,12 +331,12 @@ struct CountSols : YewPar::Enumerator<MCNode, std::uint64_t>{
   std::uint64_t get() override {return count;}
 };
 
-int upperBound(const BitGraph<NWORDS> & space, const MCNode & n) {
-  return n.size + n.sol.colours;
-}
+// int upperBound(const BitGraph<NWORDS> & space, const MCNode & n) {
+//   return n.size + n.sol.colours;
+// }
 
 
-typedef func<decltype(&upperBound), &upperBound> upperBound_func;
+// typedef func<decltype(&upperBound), &upperBound> upperBound_func;
 
 
 int hpx_main(boost::program_options::variables_map & opts) {
@@ -268,10 +368,12 @@ int hpx_main(boost::program_options::variables_map & opts) {
   mcsol.members.reserve(graph.size());
   mcsol.colours = 0;
 
-  BitSet<NWORDS> cands;
+  BitSet<NWORDS> cands, used;
   cands.resize(graph.size());
   cands.set_all();
-  MCNode root = { mcsol, 0, cands };
+  used.resize(graph.size());
+  used.set_all_zero();
+  MCNode root = { mcsol, cands, used, 0};
 
   auto sol = root;
   auto skeletonType = opts["skeleton"].as<std::string>();
@@ -280,32 +382,6 @@ int hpx_main(boost::program_options::variables_map & opts) {
   // auto all = (1 << size) -1;
   std::uint64_t count;
   if (skeletonType == "seq") {
-    // if (decisionBound != 0) {
-    //   YewPar::Skeletons::API::Params<int> searchParameters;
-    //   searchParameters.expectedObjective = decisionBound;
-
-    //   sol = YewPar::Skeletons::Seq<GenNode,
-    //                                YewPar::Skeletons::API::Decision,
-    //                                YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                YewPar::Skeletons::API::PruneLevel>
-    //         ::search(graph, root, searchParameters);
-    //   count = YewPar::Skeletons::Seq<GenNode,
-    //                                 YewPar::Skeletons::API::Enumeration,
-    //                                 YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                 YewPar::Skeletons::API::DepthLimited>
-    //         ::search(graph,root,searchParameters);
-    // } else {
-    // sol = YewPar::Skeletons::Seq<GenNode,
-    //                              YewPar::Skeletons::API::Optimisation,
-    //                              YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                              YewPar::Skeletons::API::PruneLevel>
-    //       ::search(graph, root);
-    // count = YewPar::Skeletons::Seq<GenNode,
-    //                     YewPar::Skeletons::API::Enumeration,
-    //                     YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                     YewPar::Skeletons::API::DepthLimited>
-    //       ::search(graph,root);
-    // }
     YewPar::Skeletons::API::Params<> searchParameters;
     count = YewPar::Skeletons::Seq<GenNode,
                                     YewPar::Skeletons::API::Enumeration,
@@ -313,47 +389,6 @@ int hpx_main(boost::program_options::variables_map & opts) {
                                     YewPar::Skeletons::API::DepthLimited>
             ::search(graph,root,searchParameters);
   } else if (skeletonType == "depthbounded") {
-    // if (decisionBound != 0) {
-    //   YewPar::Skeletons::API::Params<int> searchParameters;
-    //   searchParameters.expectedObjective = decisionBound;
-    //   searchParameters.spawnDepth = spawnDepth;
-    //   sol = YewPar::Skeletons::DepthBounded<GenNode,
-    //                                        YewPar::Skeletons::API::Decision,
-    //                                        YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                        YewPar::Skeletons::API::PruneLevel>
-    //         ::search(graph, root, searchParameters);
-    //   count = YewPar::Skeletons::DepthBounded<GenNode,
-    //                                         YewPar::Skeletons::API::Enumeration,
-    //                                         YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                         YewPar::Skeletons::API::DepthLimited>
-    //         ::search(graph,root,searchParameters);
-    // } else {
-    //   YewPar::Skeletons::API::Params<int> searchParameters;
-    //   searchParameters.spawnDepth = spawnDepth;
-    //   auto poolType = opts["poolType"].as<std::string>();
-    //   count = YewPar::Skeletons::DepthBounded<GenNode,
-    //                                         YewPar::Skeletons::API::Enumeration,
-    //                                         YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                         YewPar::Skeletons::API::DepthLimited>
-    //         ::search(graph,root,searchParameters);
-    //   if (poolType == "deque") {
-    //     sol = YewPar::Skeletons::DepthBounded<GenNode,
-    //                                          YewPar::Skeletons::API::Optimisation,
-    //                                          YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                          YewPar::Skeletons::API::PruneLevel,
-    //                                          YewPar::Skeletons::API::DepthBoundedPoolPolicy<
-    //                                            Workstealing::Policies::Workpool> >
-    //         ::search(graph, root, searchParameters);
-    //   } else {
-    //     sol = YewPar::Skeletons::DepthBounded<GenNode,
-    //                                          YewPar::Skeletons::API::Optimisation,
-    //                                          YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                          YewPar::Skeletons::API::PruneLevel,
-    //                                          YewPar::Skeletons::API::DepthBoundedPoolPolicy<
-    //                                            Workstealing::Policies::DepthPoolPolicy> >
-    //         ::search(graph, root, searchParameters);
-    //   }
-    // }
     YewPar::Skeletons::API::Params<> searchParameters;
     searchParameters.spawnDepth = spawnDepth;
     count = YewPar::Skeletons::DepthBounded<GenNode,
@@ -362,34 +397,6 @@ int hpx_main(boost::program_options::variables_map & opts) {
                                             YewPar::Skeletons::API::DepthLimited>
             ::search(graph,root,searchParameters);
   } else if (skeletonType == "stacksteal") {
-    // if (decisionBound != 0) {
-    //   YewPar::Skeletons::API::Params<int> searchParameters;
-    //   searchParameters.expectedObjective = decisionBound;
-    //   searchParameters.stealAll = static_cast<bool>(opts.count("chunked"));
-    //   sol = YewPar::Skeletons::StackStealing<GenNode,
-    //                                          YewPar::Skeletons::API::Decision,
-    //                                          YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                          YewPar::Skeletons::API::PruneLevel>
-    //       ::search(graph, root, searchParameters);
-    //   count = YewPar::Skeletons::StackStealing<GenNode,
-    //                                         YewPar::Skeletons::API::Enumeration,
-    //                                         YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                         YewPar::Skeletons::API::DepthLimited>
-    //       ::search(graph,root,searchParameters);
-    // } else {
-    //   YewPar::Skeletons::API::Params<int> searchParameters;
-    //   searchParameters.stealAll = static_cast<bool>(opts.count("chunked"));
-    //   sol = YewPar::Skeletons::StackStealing<GenNode,
-    //                                          YewPar::Skeletons::API::Optimisation,
-    //                                          YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                          YewPar::Skeletons::API::PruneLevel>
-    //       ::search(graph, root, searchParameters);
-    //   count = YewPar::Skeletons::StackStealing<GenNode,
-    //                                         YewPar::Skeletons::API::Enumeration,
-    //                                         YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                         YewPar::Skeletons::API::DepthLimited>
-    //       ::search(graph,root,searchParameters);
-    // }
     YewPar::Skeletons::API::Params<> searchParameters;
     searchParameters.stealAll = static_cast<bool>(opts.count("chunked"));
     count = YewPar::Skeletons::StackStealing<GenNode,
@@ -397,57 +404,7 @@ int hpx_main(boost::program_options::variables_map & opts) {
                                             YewPar::Skeletons::API::Enumerator<CountSols>,
                                             YewPar::Skeletons::API::DepthLimited>
           ::search(graph,root,searchParameters);
-  // } else if (skeletonType == "ordered") {
-  //   YewPar::Skeletons::API::Params<int> searchParameters;
-  //   searchParameters.spawnDepth = spawnDepth;
-  //   count = YewPar::Skeletons::Ordered<GenNode,
-  //                                           YewPar::Skeletons::API::Enumeration,
-  //                                           YewPar::Skeletons::API::Enumerator<CountSols>,
-  //                                           YewPar::Skeletons::API::DepthLimited>
-  //         ::search(graph,root,searchParameters);
-    // if (opts.count("discrepancyOrder")) {
-    //   sol = YewPar::Skeletons::Ordered<GenNode,
-    //                                    YewPar::Skeletons::API::Optimisation,
-    //                                    YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                    YewPar::Skeletons::API::DiscrepancySearch,
-    //                                    YewPar::Skeletons::API::PruneLevel>
-    //       ::search(graph, root, searchParameters);
-    // } else {
-    // sol = YewPar::Skeletons::Ordered<GenNode,
-    //                                      YewPar::Skeletons::API::Optimisation,
-    //                                      YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                      YewPar::Skeletons::API::PruneLevel>
-    //       ::search(graph, root, searchParameters);
-    // }
   } else if (skeletonType == "budget") {
-    // if (decisionBound != 0) {
-    // YewPar::Skeletons::API::Params<int> searchParameters;
-    // searchParameters.backtrackBudget = opts["backtrack-budget"].as<unsigned>();
-    // searchParameters.expectedObjective = decisionBound;
-    // sol = YewPar::Skeletons::Budget<GenNode,
-    //                                 YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                 YewPar::Skeletons::API::Decision,
-    //                                 YewPar::Skeletons::API::PruneLevel>
-    //     ::search(graph, root, searchParameters);
-    // count = YewPar::Skeletons::Budget<GenNode,
-    //                                         YewPar::Skeletons::API::Enumeration,
-    //                                         YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                         YewPar::Skeletons::API::DepthLimited>
-    //       ::search(graph,root,searchParameters);
-    // } else {
-    //   YewPar::Skeletons::API::Params<int> searchParameters;
-    //   searchParameters.backtrackBudget = opts["backtrack-budget"].as<unsigned>();
-    //   sol = YewPar::Skeletons::Budget<GenNode,
-    //                                   YewPar::Skeletons::API::Optimisation,
-    //                                   YewPar::Skeletons::API::BoundFunction<upperBound_func>,
-    //                                   YewPar::Skeletons::API::PruneLevel>
-    //       ::search(graph, root, searchParameters);
-    //   count = YewPar::Skeletons::Budget<GenNode,
-    //                                         YewPar::Skeletons::API::Enumeration,
-    //                                         YewPar::Skeletons::API::Enumerator<CountSols>,
-    //                                         YewPar::Skeletons::API::DepthLimited>
-    //       ::search(graph,root,searchParameters);
-    // }
     YewPar::Skeletons::API::Params<> searchParameters;
     searchParameters.backtrackBudget = opts["backtrack-budget"].as<unsigned>();
     count = YewPar::Skeletons::Budget<GenNode,
@@ -456,7 +413,7 @@ int hpx_main(boost::program_options::variables_map & opts) {
                                             YewPar::Skeletons::API::DepthLimited>
           ::search(graph,root,searchParameters);
   } else {
-    hpx::cout << "Invalid skeleton type option. Should be: seq, depthbound, stacksteal or ordered" << hpx::endl;
+    hpx::cout << "Invalid skeleton type option. Should be: seq, depthbound, stacksteal" << hpx::endl;
     hpx::finalize();
     return EXIT_FAILURE;
   }
