@@ -118,7 +118,7 @@ struct MCNode {
   // int size;
   BitSet<NWORDS> remaining;
   BitSet<NWORDS> used;
-  int leaf;
+  bool leaf;
 
   int getObj() const {
     return leaf;
@@ -143,12 +143,11 @@ struct GenNode : YewPar::NodeGenerator<MCNode, BitGraph<NWORDS> > {
 
   MCSol childSol;
   // int childBnd;
-  BitSet<NWORDS> p,p1,p2,used_p;
-  std::vector<BitSet<NWORDS>> used_f;
-  int childLeaf;
-  int v,v1;
-  int length;
-  bool flag;
+  BitSet<NWORDS> p;
+  BitSet<NWORDS>  used_p;
+  BitSet<NWORDS> use;
+  bool childLeaf;
+  int v;
 
 
   GenNode(const BitGraph<NWORDS> & graph, const MCNode & n) : graph(std::cref(graph)) {
@@ -156,175 +155,53 @@ struct GenNode : YewPar::NodeGenerator<MCNode, BitGraph<NWORDS> > {
     childSol = n.sol;
     // childBnd = n.size+1;
     p = n.remaining;
-    p1 = n.remaining;
     numChildren = p.popcount();
     v = numChildren - 1;
-    v1 = numChildren -1;
-    childLeaf = n.leaf;
+    childLeaf = false;
     used_p = n.used;
-
-    auto ca = p1;
-    graph.intersect_with_row(p_order[v],ca);
-    // p1.unset(p_order[v]);
-    p2 = ca;
-
-
-    // p1.set(p_order[v]);
-    // if(n.sol.members.size()==0){
-    //   for (size_t i = v; i >=0; i--)
-    //   {
-    //     auto can = p1;
-    //     graph.intersect_with_row(p_order[v],can);
-    //     used_f.push_back(can);
-    //   }
-      
-    // }
 
   }
 
   // Get the next value
   MCNode next() override {
     auto sol = childSol;
-    if(sol.members.size()==0 && p.popcount()==1){
-      childLeaf = 2;
-      sol.members.push_back(p_order[v]);
-      auto cands = p;
-     graph.get().intersect_with_row(p_order[v], cands);
-      p.unset(p_order[v]);
-      return {sol,cands,used_p,childLeaf};
-    }
+    
     sol.members.push_back(p_order[v]);
     sol.colours = colourClass[v] - 1;
+    childLeaf = false;
 
 
     auto cands = p;
     graph.get().intersect_with_row(p_order[v], cands);
+    
+    auto used_c = used_p;
+    graph.get().intersect_with_row(p_order[v],used_c);
+
+
+
+    if(cands.empty()&&used_c.empty()){
+      childLeaf = true;
+    }
+
 
     // Side effectful function update
     p.unset(p_order[v]);
+    used_p.set(p_order[v]);
 
-    // if(sol.members.size()==0){
-    //   for (size_t i = v1; i > v; i--
-    //   {
-    //     if(used_f[i].)
-    //   }
-      
-    // }
-
-
-    if(sol.members.size()>1){
-
-      if(!used_p.empty()){
-        length = used_p.popcount();
-        used_p.set(p_order[v]);
-        if(length==used_p.popcount()){
-          if(cands.empty()){
-            childLeaf = 2;
-          }
-        }else{
-          if(cands.empty()){
-            childLeaf = 1;
-          }else{
-            used_p.set_all_zero();
-          }
-        }
-    }
-
-      if(v!=v1&&childLeaf==0){
-        length = p2.popcount();
-        p2.set(p_order[v]);
-        if(length==p2.popcount()){
-          if(cands.empty()){
-            childLeaf = 2;
-          }else{
-            used_p = p2;
-            // childLeaf = 3;
-          }
-          
-        }else{
-          if(cands.empty()){
-            childLeaf = 1;
-          }
-        }
-      }
-
-      if(cands.empty()&&childLeaf==0){
-        childLeaf = 1;
-      }
-    }
     v--;
-    return {sol, cands, used_p, childLeaf};
+    return {sol, cands, used_c, childLeaf};
   }
-
-  // MCNode nth(unsigned n) {
-  //   auto pos = v - n;
-
-  //   auto sol = childSol;
-  //   sol.members.push_back(p_order[pos]);
-  //   sol.colours = colourClass[pos] - 1;
-
-  //   auto cands = p;
-  //   // Remove all choices from the left "left" of the one we care about
-  //   for (auto i = v; i > pos; --i) {
-  //     cands.unset(p_order[i]);
-  //   }
-
-  //   graph.get().intersect_with_row(p_order[pos], cands);
-
-  //   return {sol, childBnd, cands};
-  // }
 };
 
 struct CountSols : YewPar::Enumerator<MCNode, std::uint64_t>{
   std::uint64_t count = 0;
-  std::vector<std::vector<int> > used;
-  std::vector<int> a;
-  size_t l;
   CountSols():count(0){};
   void accumulate(const MCNode & n) override{
-    std::vector<int> flag;
-    if(n.leaf==1){
-      // count++;
-      // for(auto i : n.sol.members){
-      //   std::cout<<i+1<<" ";
-      // }
-      // std::cout<<std::endl;
-      a = n.sol.members;
-      if(used.size()==0){
-        count++;
-        used.push_back(a);
-      }else{
-
-        for(auto it : used){
-          if(it.begin()!=a.begin()){
-            for(auto i: a){
-              if(!isContains(it,i)){
-                flag.push_back(1);
-                break;
-              }
-            }
-          }
-
-        }
-        if(flag.size() == used.size()){
-          count++;
-          used.push_back(a);
-        }
-      }
-
+    if(n.leaf){
+      count++;
     }
   }
 
-  bool isContains(std::vector<int> a, int b){
-    int l = a.size();
-    for (size_t i = 0; i < l; ++i)
-    {
-      if(a[i]==b){
-        return true;
-      }
-    }
-    return false;
-  }
   void combine(const std::uint64_t & other) override{
     count += other;
   }
@@ -373,7 +250,7 @@ int hpx_main(boost::program_options::variables_map & opts) {
   cands.set_all();
   used.resize(graph.size());
   used.set_all_zero();
-  MCNode root = { mcsol, cands, used, 0};
+  MCNode root = { mcsol, cands, used, false};
 
   auto sol = root;
   auto skeletonType = opts["skeleton"].as<std::string>();
